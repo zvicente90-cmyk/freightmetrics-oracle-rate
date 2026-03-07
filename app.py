@@ -3,7 +3,7 @@ import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
 import streamlit as st
-from indice_tarifas_spot import main as show_indice_spot
+from Tendencias_de_mercado import main as show_tendencias_de_mercado
 from ai_assistant import FreightAI
 from report_gen import generate_pdf_report
 from geo_service import GeoService
@@ -1086,7 +1086,7 @@ def main():
             if 'analisis_ia' in st.session_state:
                 st.info(st.session_state['analisis_ia'])
     elif page == "📈 Índice Tarifas Spot":
-        show_indice_spot()
+        show_tendencias_de_mercado()
     elif page == "⭐ Suscripción":
         show_subscription_plans()
     elif page == "❓ FAQ":
