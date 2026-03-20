@@ -1,17 +1,13 @@
-from google import genai
+import google.generativeai as genai
 
 class FreightAI:
     def __init__(self, api_key, model_name=None):
-        self.cliente = genai.Client(api_key=api_key)
-        # Si no se especifica modelo, selecciona el primero compatible
+        genai.configure(api_key=api_key)
         if model_name is None:
-            modelos = list(self.cliente.models.list())
-            if modelos:
-                self.model_name = modelos[0].name
-            else:
-                raise Exception("No hay modelos disponibles en tu cuenta de Google GenAI.")
+            self.model_name = 'gemini-1.5-flash'
         else:
             self.model_name = model_name
+        self.model = genai.GenerativeModel(self.model_name)
 
     def analyze_route(self, data):
         # Determinar moneda y tipo de ruta para contexto correcto
@@ -123,10 +119,7 @@ class FreightAI:
             f"{'PRIORIZA explicar alertas críticas detectadas. ' if alertas_criticas else ''}Máximo 150 palabras."
         )
         try:
-            respuesta = self.cliente.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
+            respuesta = self.model.generate_content(prompt)
             # Elimina bloques duplicados completos
             blocks = respuesta.text.strip().split('\n\n')
             seen_blocks = set()
@@ -146,11 +139,7 @@ class FreightAI:
         Ideal para análisis precisos con requisitos específicos (ej: respuestas cortas, diesel).
         """
         try:
-            respuesta = self.cliente.models.generate_content(
-                model=self.model_name,
-                contents=prompt_personalizado
-            )
-            # Retorna el análisis procesado
+            respuesta = self.model.generate_content(prompt_personalizado)
             if respuesta and respuesta.text:
                 return respuesta.text.strip()
             return None
