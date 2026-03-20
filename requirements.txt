@@ -14,5 +14,8 @@ python-multipart>=0.0.6
 google-api-python-client>=2.100.0
 google-auth-oauthlib>=1.0.0
 
+# PDF Generation
+fpdf2>=2.7.0
+
 # Opcional para mejor rendimiento
 numpy>=1.24.0
