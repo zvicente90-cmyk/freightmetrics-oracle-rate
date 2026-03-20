@@ -15,7 +15,7 @@ python-dotenv>=1.0.0
 google-api-python-client>=2.100.0
 google-auth>=2.25.0
 google-auth-oauthlib>=1.0.0
-google-generativeai>=0.3.0
+google-generativeai>=0.7.0
 
 # PDF Generation
 fpdf2>=2.7.0
