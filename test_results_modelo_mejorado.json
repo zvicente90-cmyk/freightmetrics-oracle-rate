@@ -1,0 +1,17 @@
+{
+  "Norte": {
+    "dinamica": 32.4,
+    "clasica": 31.98,
+    "diferencia_pct": 1.3133208255159416
+  },
+  "Centro": {
+    "dinamica": 36.59,
+    "clasica": 31.98,
+    "diferencia_pct": 14.415259537210767
+  },
+  "Sur": {
+    "dinamica": 36.23,
+    "clasica": 31.98,
+    "diferencia_pct": 13.289555972482791
+  }
+}

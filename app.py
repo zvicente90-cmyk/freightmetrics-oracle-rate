@@ -1,18 +1,14 @@
-from auth_service_simple import login_ui, check_auth
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
 import streamlit as st
 from indice_tarifas_spot import main as show_indice_spot
 from ai_assistant import FreightAI
-from report_gen import generate_pdf_report
 from geo_service import GeoService
+from dat_history_manager import DATHistoryManager
+from diesel_prices_real import obtener_precios_reales
 import requests
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import time
 import json
 import math
 from pricing import show_subscription_plans
@@ -21,10 +17,227 @@ from contacto_page import show_contact
 from terminos_condiciones import show_terms_and_conditions
 from politica_privacidad import show_privacy_policy
 
-def obtener_costos_por_equipo(tipo_equipo):
+# ═════════════════════════════════════════════════════════════════════════════════
+# 🔮 ORÁCULO IA - GERENTE SENIOR LOGÍSTICO (Gemini Analysis)
+# ═════════════════════════════════════════════════════════════════════════════════
+
+def analizar_tarifa_with_oraculo(prediction_data):
+    """
+    Analiza la tarifa spot calculada usando Gemini como Gerente Senior en Logística.
+    NUEVO: Incluye tarifas DAT, análisis preciso de diesel y CONVERSIÓN CORRECTA DE UNIDADES.
+    CORREGIDO: $1.90 USD/km = $3.06 USD/mi (NO $22.45)
+    """
+    try:
+        # Validar que prediction_data tenga información
+        if not prediction_data:
+            return None
+        
+        # Extraer datos con valores por defecto
+        origen = prediction_data.get('origin', 'N/A')
+        destino = prediction_data.get('destination', 'N/A')
+        equipo = prediction_data.get('tipo_equipo', 'N/A')
+        distancia_km = prediction_data.get('distancia_km', 0)
+        distancia_mi = prediction_data.get('distancia_mi', 0)
+        tarifa_total = prediction_data.get('total_rate', 0)
+        tarifa_km = prediction_data.get('rate_per_km', 0)
+        tipo_ruta = prediction_data.get('tipo_ruta', 'N/A')
+        moneda = prediction_data.get('moneda', 'USD')
+        
+        # Variables macroeconómicas
+        precio_diesel = prediction_data.get('precio_diesel', 0)
+        riesgo_pais = prediction_data.get('riesgo_pais', 0)
+        inflacion = prediction_data.get('inflacion_mxn', 0)
+        tipo_cambio = prediction_data.get('tipo_cambio', 0)
+        demanda = prediction_data.get('demanda_mercado', 0)
+        capacidad = prediction_data.get('capacidad_disponible', 0)
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # CONVERSIÓN CORRECTA DE UNIDADES: KM → MILLAS
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # Calcular distancia en millas si no está disponible
+        if distancia_km > 0:
+            distancia_mi_calc = distancia_km * 0.621371
+        else:
+            distancia_mi_calc = distancia_mi if distancia_mi > 0 else 1
+        
+        # CONVERTIR TARIFA/KM A TARIFA/MILLA CORRECTAMENTE
+        # Ejemplo: $1.90 USD/km ÷ 0.621371 = $3.06 USD/mi
+        if moneda == 'USD':
+            tarifa_per_mi = tarifa_km / 0.621371 if tarifa_km > 0 else 0
+        else:
+            # Si es MXN/km, convertir primero a USD/km, luego a USD/mi
+            tarifa_per_mi = (tarifa_km / tipo_cambio) / 0.621371 if tarifa_km > 0 and tipo_cambio > 0 else 0
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # CARGAR TARIFAS DAT PARA COMPARACIÓN
+        # ═════════════════════════════════════════════════════════════════════════════════
+        tarifas_dat = {}
+        try:
+            with open('dat_rates_us.json', 'r', encoding='utf-8') as f:
+                dat_data = json.load(f)
+                tarifas_dat = dat_data.get('tarifas', {})
+                fecha_dat = dat_data.get('fecha_actualizacion', 'N/A')
+        except:
+            fecha_dat = 'N/A'
+        
+        # Mapear equipo a tarifa DAT según tipo
+        tarifa_dat_ref = None
+        if 'Caja' in equipo or 'Van' in equipo:
+            tarifa_dat_ref = tarifas_dat.get('Caja Seca (Dry Van)', 2.45)
+        elif 'Reefer' in equipo or 'Refrigerado' in equipo:
+            tarifa_dat_ref = tarifas_dat.get('Refrigerado (Reefer)', 2.87)
+        elif 'Flatbed' in equipo or 'Plataforma' in equipo:
+            tarifa_dat_ref = tarifas_dat.get('Plataforma (Flatbed)', 2.94)
+        else:
+            tarifa_dat_ref = 2.45  # Default para Van
+        
+        # Calcular variación respecto a DAT (AHORA CON UNIDADES COHERENTES: USD/mi vs USD/mi)
+        variacion_dat = ((tarifa_per_mi - tarifa_dat_ref) / tarifa_dat_ref * 100) if tarifa_dat_ref > 0 else 0
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # DETECTAR TIPO DE RUTA PARA USAR UNIDADES CORRECTAS
+        # ═════════════════════════════════════════════════════════════════════════════════
+        es_ruta_usa = tipo_ruta == 'Internacional' or 'USA' in destino or 'Texas' in destino or 'doméstica USA' in tipo_ruta.lower()
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # SELECCIONAR REFERENCIA CORRECTA SEGÚN TIPO DE RUTA
+        # ═════════════════════════════════════════════════════════════════════════════════
+        if es_ruta_usa:
+            # USA: Usar DAT como referencia
+            tarifa_referencia = tarifa_dat_ref
+            label_referencia = f"DAT ${tarifa_dat_ref:.2f}/mi"
+            variacion_referencia = variacion_dat
+        else:
+            # MÉXICO: Usar tarifa base de FreightMetrics como referencia (sin diesel dinámico)
+            try:
+                from logic_rates import FreightMetricsCalculator, determinar_zona_geografica
+                zona = determinar_zona_geografica(origen)
+                costos_base = obtener_costos_por_equipo(equipo, zona)
+                
+                # Calcular tarifa sin ajuste dinámico (tarifa base FreightMetrics)
+                calculator_ref = FreightMetricsCalculator(
+                    diesel=costos_base['diesel'],
+                    casetas=costos_base['casetas'],
+                    sueldo=costos_base['sueldo'],
+                    mantenimiento=costos_base['mantenimiento'],
+                    riesgo=costos_base['riesgo'],
+                    administracion=costos_base['inflacion'],
+                    zona=zona,
+                    utilidad_pct=0.18,
+                    aplicar_factores_dinamicos=False
+                )
+                tarifa_ref_km = calculator_ref.tarifa_spot_final()
+                tarifa_referencia = tarifa_ref_km
+                label_referencia = f"FreightMetrics ${tarifa_ref_km:.2f}/km"
+                variacion_referencia = ((tarifa_km - tarifa_ref_km) / tarifa_ref_km * 100) if tarifa_ref_km > 0 else 0
+            except:
+                # Fallback si hay error
+                tarifa_referencia = tarifa_km
+                label_referencia = "FreightMetrics Base"
+                variacion_referencia = 0
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # ANÁLISIS DE DIESEL (ESPECIAL PARA AMBAS RUTAS)
+        # ═════════════════════════════════════════════════════════════════════════════════
+        if es_ruta_usa:
+            sensibilidad_diesel = "Alta (USA): Mercado correlacionado a WTI, volatilidad moderada"
+            diesel_impact = f"Cada +$1 USD/gal impacta +0.08 USD/mi"
+        else:
+            sensibilidad_diesel = "Alta (México): Precios CRE, volatilidad extrema por política"
+            diesel_impact = f"Cada +$1 MXN/L impacta +0.15 MXN/km"
+        
+        # ═════════════════════════════════════════════════════════════════════════════════
+        # CONSTRUIR PROMPT CON UNIDADES SEGÚN TIPO DE RUTA
+        # ═════════════════════════════════════════════════════════════════════════════════
+        
+        if es_ruta_usa:
+            # RUTAS USA/INTERNACIONALES: TODO EN MILLAS Y USD
+            ruta_display = f"{origen} → {destino} ({distancia_mi_calc:.0f}mi)"
+            tarifa_display = f"${tarifa_per_mi:.2f} USD/mi"
+            tarifa_total_display = f"${tarifa_total:.2f} USD"
+            unidad_diesel = "USD/gal"
+        else:
+            # RUTAS MÉXICO DOMÉSTICAS: TODO EN KM Y MXN
+            ruta_display = f"{origen} → {destino} ({distancia_km:.0f}km)"
+            tarifa_display = f"${tarifa_km:.2f} MXN/km"
+            tarifa_total_display = f"${tarifa_total:.2f} MXN"
+            unidad_diesel = "MXN/L"
+        
+        # Construir prompt PRECISO CON UNIDADES CORRECTAS SEGÚN RUTA
+        prompt = f"""
+ROLE: Eres GERENTE SENIOR en Logística México-USA con 20+ años. SÉ ANALÍTICO Y BREVE.
+
+📍 RUTA: {ruta_display} | Equipo: {equipo}
+
+💰 TARIFA COTIZADA (UNIDADES CORRECTAS PARA {tipo_ruta.upper()}):
+  • {tarifa_display} ← UNIDADES ESTÁNDAR PARA ESTA RUTA
+  • Total: {tarifa_total_display}
+  • Referencia: {label_referencia}
+  • Variación vs Referencia: {variacion_referencia:+.1f}%
+
+⛽ DIESEL - FACTOR CRÍTICO DE RIESGO:
+  • Precio Actual: ${precio_diesel:.2f} {unidad_diesel}
+  • Sensibilidad {tipo_ruta}: {sensibilidad_diesel}
+  • Impacto: {diesel_impact}
+  • Riesgo: Si sube 15% → costo +12% aprox
+
+📊 CONDICIONES (Marzo 2026):
+  • Inflación: {inflacion:.2f}% | TC: {tipo_cambio:.2f} | Demanda: {demanda:.0%} | Riesgo: {riesgo_pais:.2f}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⚖️ ANÁLISIS EJECUTIVO (Máx 2 líneas cada sección):
+
+1️⃣ COMPETITIVIDAD: Tarifa {tarifa_display} vs {label_referencia} ({variacion_referencia:+.1f}%). ¿Es competitiva? Sí/No.
+
+2️⃣ DIESEL: ${precio_diesel:.2f} {unidad_diesel} actual. Para {tipo_ruta}: ¿Riesgo alto o tolerable?
+
+3️⃣ 2 RIESGOS CRÍTICOS: Identifica los riesgos más graves específicos de esta ruta.
+
+4️⃣ ACCIÓN: ACEPTAR / NEGOCIAR / RECHAZAR / ESPERAR + motivo (máx 15 palabras).
+
+NO digas "falta información" - todos los datos están incluidos. Sé profesional.
+"""
+        
+        print(f"[Oráculo DEBUG] Análisis iniciado: {origen} → {destino}")
+        print(f"[Oráculo DEBUG] Tipo de ruta: {tipo_ruta} (USA: {es_ruta_usa})")
+        print(f"[Oráculo DEBUG] Distancia: {distancia_mi_calc:.0f}mi | Tarifa: {tarifa_display}")
+        print(f"[Oráculo DEBUG] Referencia: {label_referencia} | Variación: {variacion_referencia:+.1f}%")
+        print(f"[Oráculo DEBUG] Diesel: ${precio_diesel:.2f} {unidad_diesel} ({sensibilidad_diesel})")
+        
+        # Usar FreightAI para análisis
+        try:
+            GEMINI_API_KEY = "AIzaSyDgXuU6LK6ktAmvlyxB84H2DFN_ubuWFcY"
+            if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
+                return None
+            
+            ai_engine = FreightAI(GEMINI_API_KEY)
+            analisis = ai_engine.analyze_route_custom(prompt)
+            
+            if not analisis or analisis.strip() == "":
+                print("[Oráculo] Análisis sin respuesta del modelo")
+                return None
+            
+            return analisis
+        except Exception as e:
+            print(f"[Oráculo Error] {e}")
+            return None
+    
+    except Exception as e:
+        print(f"[Oráculo Critical Error] {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# ═════════════════════════════════════════════════════════════════════════════════
+
+def obtener_costos_por_equipo(tipo_equipo, zona_geografica=None):
     """
     Retorna los costos por km según el tipo de equipo basado en la
     Matriz FreightMetrics actualizada con Tabla Oficial de Costos (MXN/km) 2026
+    Args:
+        tipo_equipo: Tipo de equipo de transporte
+        zona_geografica: "Norte", "Centro", "Sur" (None para auto-detectar)
     """
     import json
     from datetime import datetime
@@ -36,7 +249,9 @@ def obtener_costos_por_equipo(tipo_equipo):
         
         # Obtener mes actual
         mes_actual = datetime.now().strftime('%b')  # Ene, Feb, Mar
-        zona = "Centro"  # Usar zona Centro como promedio nacional
+        
+        # Usar zona específica o Centro como fallback
+        zona = zona_geografica if zona_geografica in ["Norte", "Centro", "Sur"] else "Centro"
         
         # Buscar datos del mes y zona
         datos_zona = matriz['matriz']['2026'][mes_actual].get(zona, [])
@@ -60,6 +275,8 @@ def obtener_costos_por_equipo(tipo_equipo):
             elif 'Manto' in componente:
                 componentes['mantenimiento'] = valor
         
+        # Agregar información de zona utilizada
+        componentes['zona_utilizada'] = zona
         return componentes
         
     except Exception as e:
@@ -71,7 +288,8 @@ def obtener_costos_por_equipo(tipo_equipo):
                 "casetas": 3.3,
                 "sueldo": 3.4,
                 "riesgo": 1.3,
-                "mantenimiento": 2.2
+                "mantenimiento": 2.2,
+                "zona_utilizada": zona_geografica or "Centro"
             },
             "Plataforma (Flatbed)": {
                 "diesel": 6.9,
@@ -79,7 +297,8 @@ def obtener_costos_por_equipo(tipo_equipo):
                 "casetas": 3.3,
                 "sueldo": 3.8,
                 "riesgo": 1.5,
-                "mantenimiento": 2.5
+                "mantenimiento": 2.5,
+                "zona_utilizada": zona_geografica or "Centro"
             },
             "Refrigerado (Reefer)": {
                 "diesel": 7.9,
@@ -87,7 +306,8 @@ def obtener_costos_por_equipo(tipo_equipo):
                 "casetas": 3.3,
                 "sueldo": 4.4,
                 "riesgo": 1.7,
-                "mantenimiento": 2.8
+                "mantenimiento": 2.8,
+                "zona_utilizada": zona_geografica or "Centro"
             },
             "Full (Doble)": {
                 "diesel": 9.0,
@@ -95,17 +315,35 @@ def obtener_costos_por_equipo(tipo_equipo):
                 "casetas": 4.8,
                 "sueldo": 4.9,
                 "riesgo": 1.9,
-                "mantenimiento": 3.2
+                "mantenimiento": 3.2,
+                "zona_utilizada": zona_geografica or "Centro"
             }
         }
         return costos_fallback.get(tipo_equipo, costos_fallback["Caja Seca (Dry Van)"])
 
-def mostrar_cotizacion_profesional(dist_km, equipo):
+def mostrar_cotizacion_profesional(dist_km, equipo, origen=None, destino=None, tipo_carga=None, 
+                                   riesgo_pais=0.3, precio_diesel=22.0, tiempo_cruce=6,
+                                   inflacion_mxn=5.5, tipo_cambio=18.0, demanda_mercado=0.7, 
+                                   capacidad_disponible=0.6):
+    # DEBUG
+    print(f"[DEBUG mostrar_cotizacion_profesional] dist_km={dist_km}, equipo={equipo}, origen={origen}, destino={destino}")
+    
+    # Validar que equipo sea uno de los valores conocidos
+    equipos_validos = ["Caja Seca (Dry Van)", "Refrigerado (Reefer)", "Plataforma (Flatbed)", 
+                       "Contenedor 20'", "Contenedor 40'", "Full (Doble)"]
+    if equipo not in equipos_validos:
+        print(f"[WARNING] equipo inválido: {equipo}, usando default Caja Seca")
+        equipo = "Caja Seca (Dry Van)"
+    
     # Botón de descarga de PDF profesional solo para usuarios PRO o ENTERPRISE
     usuario = st.session_state.get('user', {})
     plan = usuario.get('plan', 'free')
-    origen = st.session_state.get('origin_input', '')
-    destino = st.session_state.get('dest_input', '')
+    
+    # Usar parámetros pasados o fallback a session_state
+    if not origen:
+        origen = st.session_state.get('origin_input', '')
+    if not destino:
+        destino = st.session_state.get('dest_input', '')
     # Detectar país usando GeoService
     try:
         geo_tool = st.session_state.get('geo_tool', None)
@@ -127,20 +365,45 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
     # 📊 CARGAR TARIFAS DAT (Para USA Domésticas e Internacionales)
     import json
     import os
-    dat_file = os.path.join(os.path.dirname(__file__), "dat_rates_us.json")
+    
+    # Cargar datos históricos si están disponibles
     try:
-        with open(dat_file, "r", encoding="utf-8") as f:
-            dat_data = json.load(f)
-        tarifa_dat_por_milla = dat_data.get("tarifas", {})
-        fuente_dat = f"{dat_data.get('fuente', 'DAT Freight & Analytics')} (Actualizado: {dat_data.get('fecha_actualizacion', '')})"
-    except Exception as e:
-        # Tarifas DAT fallback (Marzo 2026)
-        tarifa_dat_por_milla = {
-            "Caja Seca (Dry Van)": 2.32,
-            "Refrigerado (Reefer)": 2.81,
-            "Plataforma (Flatbed)": 2.59
-        }
-        fuente_dat = "DAT Freight & Analytics (Marzo 2026 - Fallback)"
+        dat_history = DATHistoryManager()
+        today = datetime.now()
+        year = str(today.year)
+        month = f"{today.month:02d}"
+        week = f"week_{today.isocalendar()[1]:02d}"
+        
+        # Intentar obtener datos de la semana actual
+        current_week_data = dat_history.get_weekly_data(year, month, week)
+        if current_week_data and current_week_data.get("tarifas"):
+            # Usar datos históricos de la semana actual
+            tarifa_dat_por_milla = {}
+            for equipo, data in current_week_data["tarifas"].items():
+                if data["promedio"] is not None:
+                    tarifa_dat_por_milla[equipo] = data["promedio"]
+            fuente_dat = f"DAT Freight & Analytics - Semana {week} ({current_week_data['fecha_inicio']} - {current_week_data['fecha_fin']})"
+            print(f"🔄 Usando datos históricos DAT: {week}")
+        else:
+            # Fallback a archivo actual
+            raise Exception("No hay datos de semana actual, usar archivo estático")
+            
+    except Exception:
+        # Usar archivo estático como fallback
+        dat_file = os.path.join(os.path.dirname(__file__), "dat_rates_us.json")
+        try:
+            with open(dat_file, "r", encoding="utf-8") as f:
+                dat_data = json.load(f)
+            tarifa_dat_por_milla = dat_data.get("tarifas", {})
+            fuente_dat = f"{dat_data.get('fuente', 'DAT Freight & Analytics')} (Actualizado: {dat_data.get('fecha_actualizacion', '')})"
+        except Exception as e:
+            # Tarifas DAT fallback (Marzo 2026)
+            tarifa_dat_por_milla = {
+                "Caja Seca (Dry Van)": 2.32,
+                "Refrigerado (Reefer)": 2.81,
+                "Plataforma (Flatbed)": 2.59
+            }
+            fuente_dat = "DAT Freight & Analytics (Marzo 2026 - Fallback)"
     # Determinar tipo de ruta PRIMERO
     debug_info = f"DEBUG: pais_origen='{pais_origen}', pais_destino='{pais_destino}'"
     
@@ -155,7 +418,8 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
         tipo_ruta = 'Ruta General'
     
     # Mostrar debug en desarrollo
-    # print(f"{debug_info} -> {tipo_ruta}")  # Comentado para producción
+    print(f"{debug_info} -> {tipo_ruta}")  # DEBUG visible
+    st.info(f"🔍 TIPO RUTA: {tipo_ruta} | Origen: {pais_origen} | Destino: {pais_destino}")
 
     # 🚛 CÁLCULO DE TARIFAS SEGÚN TIPO DE RUTA
     # ═══════════════════════════════════════════════════════════════
@@ -207,22 +471,49 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
         
     else:
         # 🇲🇽 RUTAS DOMÉSTICAS MÉXICO → usar FreightMetrics matriz (MXN)
-        from logic_rates import FreightMetricsCalculator
-        costos_base = obtener_costos_por_equipo(equipo)
+        from logic_rates import FreightMetricsCalculator, determinar_zona_geografica
+        
+        # Determinar zona geográfica basada en origen
+        zona_calculada = determinar_zona_geografica(origen)
+        
+        costos_base = obtener_costos_por_equipo(equipo, zona_calculada)
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # ⚡ AJUSTE DINÁMICO DE DIESEL: Aplicar factor proporcional sobre matriz
+        # ═══════════════════════════════════════════════════════════════════════════
+        # La matriz se calibró con diesel a precio referencia de ~$24.5 MXN/L
+        precio_referencia_matriz = 24.5  # Precio base con el que se calculó la matriz
+        
+        # Factor de ajuste: nuevo precio / precio de referencia
+        factor_diesel = precio_diesel / precio_referencia_matriz
+        
+        # Aplicar factor al componente diesel de la matriz (ajuste proporcional)
+        diesel_matriz = costos_base['diesel']
+        diesel_ajustado = diesel_matriz * factor_diesel
+        
+        print(f"[DIESEL DINÁMICO] Precio referencia matriz: ${precio_referencia_matriz:.2f} MXN/L")
+        print(f"[DIESEL DINÁMICO] Precio actual seleccionado: ${precio_diesel:.2f} MXN/L")
+        print(f"[DIESEL DINÁMICO] Factor de ajuste: {factor_diesel:.4f}x")
+        print(f"[DIESEL DINÁMICO] Costo diesel matriz: ${diesel_matriz:.2f} MXN/km")
+        print(f"[DIESEL DINÁMICO] Costo diesel ajustado: ${diesel_ajustado:.2f} MXN/km")
+        print(f"[DIESEL DINÁMICO] Cambio: ${(diesel_ajustado - diesel_matriz):.2f} MXN/km ({((factor_diesel-1)*100):.1f}%)")
+        
         calculator = FreightMetricsCalculator(
-            diesel=costos_base['diesel'],
+            diesel=diesel_ajustado,  # CAMBIO: Usar componente diesel ajustado por precio actual
             casetas=costos_base['casetas'],
             sueldo=costos_base['sueldo'],
             mantenimiento=costos_base['mantenimiento'],
             riesgo=costos_base['riesgo'],
             administracion=costos_base['inflacion'],
-            utilidad_pct=0.18
+            zona=zona_calculada,
+            utilidad_pct=0.18,
+            aplicar_factores_dinamicos=True  # Usar factores dinámicos por defecto
         )
         costo_por_km = calculator.tarifa_spot_final()
         tarifa_total = round(costo_por_km * dist_km, 2)
-        base_ref = round(calculator.costo_operativo() * dist_km, 2)
-        fuente_tarifa = "FreightMetrics - Tabla Oficial de Costos por Componente"
-        justificacion = f'✅ Tarifa México: {equipo} usando modelo FreightMetrics ${costo_por_km:.2f}/km para {dist_km} km'
+        base_ref = round(calculator.costo_operativo_ajustado() * dist_km, 2)
+        fuente_tarifa = f"FreightMetrics - Zona {zona_calculada} + Ajuste Diesel Actual"
+        justificacion = f'✅ Tarifa México Zona {zona_calculada}: {equipo} con ajuste diesel ${precio_diesel:.2f}/L (factor {factor_diesel:.2f}x) → ${costo_por_km:.2f}/km para {dist_km} km'
         moneda = 'MXN'
     
     # FSC solo aplica para rutas internacionales (coherente con moneda)
@@ -249,7 +540,8 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
         'fuente_tarifa': fuente_tarifa,
         'pais_origen': pais_origen,
         'pais_destino': pais_destino,
-        'debug_tipo_ruta': f"{pais_origen} -> {pais_destino} = {tipo_ruta}"
+        'debug_tipo_ruta': f"{pais_origen} -> {pais_destino} = {tipo_ruta}",
+        'calculator': calculator if 'calculator' in locals() else None  # Para factores dinámicos
     }
     # Ejemplo de cálculo de cambio porcentual entre base_ref y total
     try:
@@ -263,101 +555,180 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
     # Mostrar visualización diferente según tipo de ruta
     if datos['tipo_ruta'] == 'Doméstica USA':
         # Para rutas domésticas USA: solo mostrar tarifa DAT (sin desglose)
+        # Calcular información adicional para USA (incluir tendencias si están disponibles)
+        distancia_mi = round(dist_km * 0.621371, 2)
+        tarifa_por_milla = round(datos['total'] / distancia_mi, 2) if distancia_mi > 0 else 0
+        
+        # Obtener información de tendencia si está disponible
+        try:
+            dat_history = DATHistoryManager()
+            today = datetime.now()
+            year = str(today.year)
+            month = f"{today.month:02d}"
+            week = f"week_{today.isocalendar()[1]:02d}"
+            current_week_data = dat_history.get_weekly_data(year, month, week)
+            
+            if current_week_data and datos['tipo_equipo'] in current_week_data["tarifas"]:
+                trend_data = current_week_data["tarifas"][datos['tipo_equipo']]
+                variacion_pct = trend_data.get("variacion_pct", 0)
+                tendencia = trend_data.get("tendencia", "estable")
+                trend_icon = "📈" if tendencia == "alcista" else "📉" if tendencia == "bajista" else "➡️"
+                trend_text = f"{trend_icon} {tendencia.capitalize()} ({variacion_pct:+.1f}%)"
+            else:
+                trend_text = "➡️ Datos limitados"
+        except:
+            trend_text = "📊 Seguimiento DAT"
+        
         st.markdown(f"""
-            <div style='display:flex; justify-content:center; align-items:stretch; width:100%; margin-bottom:32px; gap:32px;'>
+            <div style='display:flex; justify-content:center; align-items:stretch; width:100%; margin-bottom:32px; gap:16px;'>
                 <div style='flex:1; text-align:center; padding:24px; border:2px solid #4A90E2; border-radius:12px; background:#f8fafc;'>
                     <div style='font-size:2.4rem; font-weight:800; color:#2d3748; letter-spacing:1px;'>${datos['total']} {moneda}</div>
                     <div style='font-size:1.2rem; color:#4A90E2; margin-top:8px; font-weight:600;'>Tarifa DAT Spot ({moneda})</div>
                     <div style='font-size:0.9rem; color:#666; margin-top:4px;'>{datos['fuente_tarifa']}</div>
                 </div>
+                <div style='flex:1; text-align:center; padding:24px; border:2px solid #28a745; border-radius:12px; background:#f8fff9;'>
+                    <div style='font-size:1.8rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${tarifa_por_milla:.2f}/mi</div>
+                    <div style='font-size:1.1rem; color:#28a745; margin-top:8px; font-weight:600;'>Por Milla</div>
+                    <div style='font-size:0.85rem; color:#666; margin-top:4px;'>🚛 {datos['tipo_equipo']}</div>
+                    <div style='font-size:0.85rem; color:#666;'>📏 {datos['distancia_km']} km / {distancia_mi} mi</div>
+                    <div style='font-size:0.8rem; color:#e67e22; margin-top:4px; font-weight:600;'>{trend_text}</div>
+                </div>
             </div>
         """, unsafe_allow_html=True)
     elif datos['tipo_ruta'] == 'Internacional USA-México':
         # Para rutas internacionales: mostrar base DAT + cruce y documentación
+        # Calcular información adicional para Internacional
+        distancia_mi = round(dist_km * 0.621371, 2)
+        tarifa_por_milla = round(datos['total'] / distancia_mi, 2) if distancia_mi > 0 else 0
+        
+        # Obtener información de tendencia DAT si está disponible
+        try:
+            dat_history = DATHistoryManager()
+            today = datetime.now()
+            year = str(today.year)
+            month = f"{today.month:02d}"
+            week = f"week_{today.isocalendar()[1]:02d}"
+            current_week_data = dat_history.get_weekly_data(year, month, week)
+            
+            if current_week_data and datos['tipo_equipo'] in current_week_data["tarifas"]:
+                trend_data = current_week_data["tarifas"][datos['tipo_equipo']]
+                variacion_pct = trend_data.get("variacion_pct", 0)
+                tendencia = trend_data.get("tendencia", "estable")
+                trend_icon = "📈" if tendencia == "alcista" else "📉" if tendencia == "bajista" else "➡️"
+                trend_text = f"{trend_icon} {tendencia.capitalize()}"
+                trend_detail = f"({variacion_pct:+.1f}% vs sem. anterior)"
+            else:
+                trend_text = "📊 Base DAT"
+                trend_detail = "(Datos limitados)"
+        except:
+            trend_text = "📊 Base DAT"  
+            trend_detail = "(Seguimiento estándar)"
+        
         st.markdown(f"""
-            <div style='display:flex; justify-content:space-evenly; align-items:stretch; width:100%; margin-bottom:32px; gap:32px;'>
-                <div style='flex:1; text-align:center; padding:24px 0;'>
-                    <div style='font-size:2.2rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${datos['total']} {moneda} <span style='font-size:1.1rem; color:#888;'>(+{cambio_pct}%)</span></div>
-                    <div style='font-size:1.1rem; color:#666; margin-top:8px;'>Tarifa Total ({moneda})</div>
-                    <div style='font-size:0.9rem; color:#4A90E2; margin-top:4px;'>DAT + Cruce y Documentación</div>
+            <div style='display:flex; justify-content:space-evenly; align-items:stretch; width:100%; margin-bottom:32px; gap:16px;'>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #4A90E2; border-radius:12px; background:#f8fafc;'>
+                    <div style='font-size:2.0rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${datos['total']} {moneda} <span style='font-size:1.0rem; color:#888;'>(+{cambio_pct}%)</span></div>
+                    <div style='font-size:1.0rem; color:#666; margin-top:6px;'>Tarifa Total ({moneda})</div>
+                    <div style='font-size:0.85rem; color:#4A90E2; margin-top:4px;'>DAT + Cruce y Documentación</div>
                 </div>
-                <div style='flex:1; text-align:center; padding:24px 0;'>
-                    <div style='font-size:2.2rem; font-weight:700; color:#22543d; letter-spacing:1px;'>${datos['base_ref']} {moneda}</div>
-                    <div style='font-size:1.1rem; color:#666; margin-top:8px;'>Base DAT</div>
-                    <div style='font-size:0.9rem; color:#22543d; margin-top:4px;'>Solo Transporte</div>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #22543d; border-radius:12px; background:#f0fdf4;'>
+                    <div style='font-size:2.0rem; font-weight:700; color:#22543d; letter-spacing:1px;'>${datos['base_ref']} {moneda}</div>
+                    <div style='font-size:1.0rem; color:#666; margin-top:6px;'>Base DAT</div>
+                    <div style='font-size:0.85rem; color:#22543d; margin-top:4px;'>Solo Transporte</div>
+                    <div style='font-size:0.75rem; color:#e67e22; margin-top:2px; font-weight:600;'>{trend_text}</div>
+                </div>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #dc3545; border-radius:12px; background:#fff5f5;'>
+                    <div style='font-size:1.6rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${tarifa_por_milla:.2f}/mi</div>
+                    <div style='font-size:1.0rem; color:#dc3545; margin-top:6px; font-weight:600;'>Por Milla</div>
+                    <div style='font-size:0.8rem; color:#666; margin-top:4px;'>🚛 {datos['tipo_equipo']}</div>
+                    <div style='font-size:0.8rem; color:#666;'>📏 {datos['distancia_km']} km</div>
+                    <div style='font-size:0.8rem; color:#666;'>🌍 {datos['tipo_ruta']}</div>
+                    <div style='font-size:0.75rem; color:#e67e22; margin-top:2px;'>{trend_detail}</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
     else:
         # Para rutas domésticas México: mostrar desglose FreightMetrics
+        # Calcular información adicional para México
+        tarifa_por_km = round(datos['total'] / datos['distancia_km'], 2) if datos['distancia_km'] > 0 else 0
+        
         st.markdown(f"""
-            <div style='display:flex; justify-content:space-evenly; align-items:stretch; width:100%; margin-bottom:32px; gap:32px;'>
-                <div style='flex:1; text-align:center; padding:24px 0;'>
-                    <div style='font-size:2.2rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${datos['total']} {moneda}</div>
-                    <div style='font-size:1.1rem; color:#666; margin-top:8px;'>Tarifa Total ({moneda})</div>
+            <div style='display:flex; justify-content:space-evenly; align-items:stretch; width:100%; margin-bottom:32px; gap:16px;'>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #4A90E2; border-radius:12px; background:#f8fafc;'>
+                    <div style='font-size:2.0rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${datos['total']} {moneda}</div>
+                    <div style='font-size:1.0rem; color:#666; margin-top:6px;'>Tarifa Total ({moneda})</div>
+                    <div style='font-size:0.85rem; color:#4A90E2; margin-top:4px;'>FreightMetrics</div>
                 </div>
-                <div style='flex:1; text-align:center; padding:24px 0;'>
-                    <div style='font-size:2.2rem; font-weight:700; color:#22543d; letter-spacing:1px;'>${datos['base_ref']} {moneda} <span style='font-size:1.1rem; color:#888;'>({cambio_pct}%)</span></div>
-                    <div style='font-size:1.1rem; color:#666; margin-top:8px;'>Base de Cálculo</div>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #22543d; border-radius:12px; background:#f0fdf4;'>
+                    <div style='font-size:2.0rem; font-weight:700; color:#22543d; letter-spacing:1px;'>${datos['base_ref']} {moneda} <span style='font-size:1.0rem; color:#888;'>({cambio_pct}%)</span></div>
+                    <div style='font-size:1.0rem; color:#666; margin-top:6px;'>Base de Cálculo</div>
+                    <div style='font-size:0.85rem; color:#22543d; margin-top:4px;'>Costo Operativo</div>
+                </div>
+                <div style='flex:1; text-align:center; padding:20px; border:2px solid #28a745; border-radius:12px; background:#f8fff9;'>
+                    <div style='font-size:1.6rem; font-weight:700; color:#2d3748; letter-spacing:1px;'>${tarifa_por_km:.2f}/km</div>
+                    <div style='font-size:1.0rem; color:#28a745; margin-top:6px; font-weight:600;'>Por Kilómetro</div>
+                    <div style='font-size:0.8rem; color:#666; margin-top:4px;'>🚛 {datos['tipo_equipo']}</div>
+                    <div style='font-size:0.8rem; color:#666;'>📏 {datos['distancia_km']} km</div>
+                    <div style='font-size:0.8rem; color:#666;'>🌎 Doméstica MX</div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
+        
+    # Mostrar fuente y justificación de manera prominente
+    st.markdown("### 📋 **Fuente y Metodología**")
+    col_fuente1, col_fuente2 = st.columns(2)
+    with col_fuente1:
+        st.info(f"**📊 Fuente:** {datos['fuente_tarifa']}")
+    with col_fuente2:
+        st.success(f"**✅ Ruta:** {datos['origen_hint']} → {datos['destino_hint']}")
 
-    with st.expander("🔍 Ver desglose de costos y auditoría"):
-        st.write(f"**Tipo de Ruta:** {datos['tipo_ruta']}")
-        st.write(f"**Base de Cálculo:** {datos['base_ref']}")
-        st.write(f"**Distancia:** {datos['distancia_km']} km")
-        # FSC solo para rutas internacionales
-        if datos['tipo_ruta'] == 'Internacional USA-México' and datos['fsc_estimado'] > 0:
-            st.write(f"**FSC Estimado (15%):** ${datos['fsc_estimado']} USD")
-        st.write("**Estatus:** Mercado Volátil 📈")
-        # Mostrar tarifa por milla o por km según el tipo de ruta
-        if datos['tipo_ruta'] == 'Doméstica USA':
-            tarifa_milla = None
-            try:
-                # Leer tarifa DAT desde archivo
-                import json, os
-                dat_file = os.path.join(os.path.dirname(__file__), "dat_rates_us.json")
-                with open(dat_file, "r", encoding="utf-8") as f:
-                    dat_data = json.load(f)
-                tarifas = dat_data.get("tarifas", {})
-                equipo_key = equipo
-                if equipo_key.startswith("Caja Seca"):
-                    equipo_key = "Caja Seca (Dry Van)"
-                elif equipo_key.startswith("Refrigerado"):
-                    equipo_key = "Refrigerado (Reefer)"
-                elif equipo_key.startswith("Plataforma"):
-                    equipo_key = "Plataforma (Flatbed)"
-                tarifa_milla = tarifas.get(equipo_key, None)
-            except Exception:
-                tarifa_milla = None
-            if tarifa_milla:
-                st.write(f"**Tarifa Spot DAT:** ${tarifa_milla} USD/mi")
-        elif datos['tipo_ruta'] == 'Doméstica México':
-            # Calcular tarifa por km
-            try:
-                from logic_rates import FreightMetricsCalculator
-                costos_base = obtener_costos_por_equipo(equipo)
-                calculator = FreightMetricsCalculator(
-                    diesel=costos_base['diesel'],
-                    casetas=costos_base['casetas'],
-                    sueldo=costos_base['sueldo'],
-                    mantenimiento=costos_base['mantenimiento'],
-                    riesgo=costos_base['riesgo'],
-                    administracion=costos_base['inflacion'],
-                    utilidad_pct=0.18
-                )
-                tarifa_km = calculator.tarifa_spot_final()
-                st.write(f"**Tarifa Spot FreightMetrics:** ${tarifa_km} MXN/km")
-            except Exception:
-                pass
-        if datos.get('fuente_tarifa'):
-            st.info(f"Fuente tarifa: {datos['fuente_tarifa']}")
-        # Mostrar justificación solo a usuarios PRO o ENTERPRISE
-        usuario = st.session_state.get('user', {})
-        plan = usuario.get('plan', 'free')
-        if plan in ['pro', 'enterprise'] and 'justificacion' in datos:
-            st.info(f"📝 Justificación: {datos['justificacion']}")
+    # Mostrar información de factores dinámicos si es ruta México
+    if moneda == 'MXN' and datos.get('calculator'):
+        st.markdown("### 🎯 **Análisis de Factores Dinámicos**")
+        calculator = datos['calculator']
+        desglose = calculator.desglose_completo()
+        
+        col_fact1, col_fact2, col_fact3 = st.columns(3)
+        with col_fact1:
+            st.metric(
+                "🗺️ Zona Geográfica", 
+                desglose['zona'],
+                help="Zona determinada automáticamente según origen"
+            )
+        with col_fact2:
+            st.metric(
+                "📈 Factor Dinámico",
+                f"{desglose['factor_zona_dinamico']:.3f}",
+                f"{((desglose['factor_zona_dinamico'] - 1) * 100):+.1f}%",
+                help="Factor que ajusta la tarifa según condiciones de mercado actuales"
+            )
+        with col_fact3:
+            st.metric(
+                "⚙️ Utilidad Aplicada",
+                f"{desglose['utilidad_pct']:.0f}%",
+                f"${desglose['utilidad_mxn']:.2f}",
+                help="Margen de utilidad incluido en la tarifa"
+            )
+        
+        # Expandible con desglose de componentes
+        with st.expander("🔍 **Ver Desglose Detallado de Componentes**"):
+            st.markdown("**Componentes Base por Kilómetro:**")
+            componentes = desglose['componentes_base']
+            
+            col_comp1, col_comp2 = st.columns(2)
+            with col_comp1:
+                st.markdown(f"🛢️ **Diésel:** ${componentes['diesel']:.2f}")
+                st.markdown(f"🛣️ **Casetas:** ${componentes['casetas']:.2f}")
+                st.markdown(f"👷 **Sueldo:** ${componentes['sueldo']:.2f}")
+            with col_comp2:
+                st.markdown(f"🔧 **Mantenimiento:** ${componentes['mantenimiento']:.2f}")
+                st.markdown(f"⚠️ **Riesgo/Seguro:** ${componentes['riesgo']:.2f}")
+                st.markdown(f"📊 **Administración:** ${componentes['administracion']:.2f}")
+            
+            st.markdown("---")
+            st.markdown(f"**💰 Costo Base Total:** ${desglose['costo_operativo_base']:.2f}/km")
+            st.markdown(f"**📈 Después Factores Dinámicos:** ${desglose['costo_operativo_ajustado']:.2f}/km")
+            st.markdown(f"**🎯 Tarifa Final con Utilidad:** ${desglose['tarifa_spot_final']:.2f}/km")
 
     # Guardar todos los datos relevantes para el Oráculo en session_state
 
@@ -382,24 +753,77 @@ def mostrar_cotizacion_profesional(dist_km, equipo):
         'distancia_mi': distancia_mi,
         'total_rate': total_rate,
         'prediccion_7d': pred_7,
-        'spot_rate': datos.get('base_ref', ''),
+        # `spot_rate` debe ser la tarifa por kilómetro (MXN/km) cuando la moneda es MXN,
+        # o la tarifa base (total) cuando sea DAT/USD. Añadimos también `rate_per_km`.
+        'rate_per_km': round(total_rate / distancia_km, 2) if distancia_km > 0 else None,
+        'spot_rate': round(total_rate / distancia_km, 2) if moneda == 'MXN' and distancia_km > 0 else datos.get('base_ref', ''),
         'base_ref': datos.get('base_ref', ''),
         'tipo_ruta': datos.get('tipo_ruta', ''),
         'rate_per_mile': rate_per_mile,
         'moneda': moneda,
-        'moneda_real': moneda,  # redundante para claridad
-        'riesgo_pais': st.session_state.get('riesgo_pais', 0),
-        'precio_diesel': st.session_state.get('precio_diesel', 0),
-        'tiempo_cruce': st.session_state.get('tiempo_cruce', 0),
-        'inflacion_mxn': st.session_state.get('inflacion_mxn', 0),
-        'tipo_cambio': st.session_state.get('tipo_cambio', 0),
-        'demanda_mercado': st.session_state.get('demanda_mercado', 0),
-        'capacidad_disponible': st.session_state.get('capacidad_disponible', 0)
+        # Usar parámetros pasados a la función (PRIORITARIOS)
+        'riesgo_pais': riesgo_pais,
+        'precio_diesel': precio_diesel,
+        'tiempo_cruce': tiempo_cruce,
+        'inflacion_mxn': inflacion_mxn,
+        'tipo_cambio': tipo_cambio,
+        'demanda_mercado': demanda_mercado,
+        'capacidad_disponible': capacidad_disponible,
+        'pais_origen': datos.get('pais_origen', ''),
+        'pais_destino': datos.get('pais_destino', ''),
+        'origen_hint': datos.get('origen_hint', origen),
+        'destino_hint': datos.get('destino_hint', destino),
+        # Variables adicionales para el Oráculo
+        'tarifa_km': round(total_rate / distancia_km, 2) if distancia_km > 0 else 0,
+        'rate_per_km_display': f"${round(total_rate / distancia_km, 2):.2f}" if distancia_km > 0 else "N/A"
     }
 
-    if st.button("🔮 Auditar Tarifa Spot con FreightMetrics"):
-        st.session_state['analisis_ia'] = None
-        st.experimental_rerun()
+    # ═════════════════════════════════════════════════════════════════════════════════
+    # 🔮 ANÁLISIS DEL ORÁCULO IA (Gerente Senior Logístico)
+    # ═════════════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    
+    with st.expander("🔮 **ANÁLISIS DEL ORÁCULO IA** - Evaluación del Gerente Senior", expanded=True):
+        st.markdown("""
+        <div style='background: rgba(102, 126, 234, 0.1); padding: 15px; border-radius: 12px; border-left: 5px solid #667eea;'>
+        <p style='margin: 0; color: #333; font-size: 0.95rem;'>
+        <strong>🎯 Gerente Senior en Logística</strong> con 20+ años de experiencia analiza tu tarifa spot.
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # DEBUG: Verificar que el diccionario tiene datos
+        prediction_data = st.session_state.get('prediction_result', {})
+        print(f"\n[Oráculo DEBUG] Datos recibidos:")
+        print(f"  - Origen: {prediction_data.get('origin', 'FALTA')}")
+        print(f"  - Destino: {prediction_data.get('destination', 'FALTA')}")
+        print(f"  - Distancia: {prediction_data.get('distancia_km', 'FALTA')} km")
+        print(f"  - Tarifa Total: ${prediction_data.get('total_rate', 'FALTA')} {prediction_data.get('moneda', 'USD')}")
+        print(f"  - Precio Diesel: ${prediction_data.get('precio_diesel', 'FALTA')} MXN/L")
+        print(f"  - Tipo Cambio: {prediction_data.get('tipo_cambio', 'FALTA')}")
+        print(f"  - Demanda Mercado: {prediction_data.get('demanda_mercado', 'FALTA')}")
+        
+        analisis = analizar_tarifa_with_oraculo(prediction_data)
+        
+        if analisis and analisis.strip() != "":
+            st.info(analisis)
+        else:
+            # Fallback análisis si API falla
+            st.warning("""
+            ⚠️ **Análisis Temporal No Disponible**
+            
+            Para obtener un análisis experto completo con recomendaciones profesionales,
+            actualiza tu suscripción o contacta a nuestro equipo.
+            
+            *Los datos de tu cotización se han guardado y pueden consultarse en cualquier momento.*
+            """)
+
+    # Mostrar encabezado del resultado justo después de la predicción (solo en la sección de cotización)
+    try:
+        # Header eliminado: "Tarifa Spot - Resultado de Cotización"
+        pass
+    except Exception:
+        pass
 
 def show_subscription_levels():
     st.markdown("""
@@ -409,16 +833,6 @@ def show_subscription_levels():
 | **Pro**    | Cotizaciones ilimitadas, USA-MX, PDF               | $49 USD/mes       |
 | **Enterprise** | API Access, Auditoría de IA avanzada           | $199 USD/mes      |
 """)
-
-geo_imported = False
-
- 
-st.set_page_config(
-    page_title="FreightMetrics Oracle Rate",
-    page_icon="🚛",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 st.set_page_config(
     page_title="FreightMetrics Oracle Rate",
@@ -432,11 +846,9 @@ API_BASE_URL = "http://localhost:8000"
 
 # Configuración de Google Maps API
 try:
-    geo_imported = True
     google_api_key = "AIzaSyAsTP4yTb7j7XECoQcsBDMviooAv-v90P8"
     geo_tool = GeoService(api_key=google_api_key)
 except NameError:
-    geo_imported = False
     geo_tool = None
 
 # Función para hacer llamadas a la API
@@ -543,23 +955,23 @@ def render_header():
         "</div>"
         "</div>"
         
-        # Innovación y Transparencia
-        "<div style='display: flex; gap: 20px; margin-top: 20px;'>"
-        "<div style='flex: 1; background: rgba(255,255,255,0.08); padding: 20px; border-radius: 12px;'>"
-        "<h3 style='color: #00FF88; font-size: 1.1rem; font-weight: 700; margin: 0 0 10px 0;'>🚀 Innovación</h3>"
-        "<p style='color: rgba(255,255,255,0.9); font-size: 0.95rem; line-height: 1.5; margin: 0;'>"
-        "Somos los primeros en México en automatizar el análisis de las variables que la SCT y el INEGI publican, "
-        "eliminando el error humano y el retraso de los tabuladores manuales."
-        "</p>"
-        "</div>"
-        "<div style='flex: 1; background: rgba(255,255,255,0.08); padding: 20px; border-radius: 12px;'>"
-        "<h3 style='color: #00BFFF; font-size: 1.1rem; font-weight: 700; margin: 0 0 10px 0;'>🔍 Transparencia</h3>"
-        "<p style='color: rgba(255,255,255,0.9); font-size: 0.95rem; line-height: 1.5; margin: 0;'>"
-        "Cualquier tarifa mostrada puede ser auditada contra el precio del diésel de la CRE del día de hoy "
-        "y el INPP del último mes."
-        "</p>"
-        "</div>"
-        "</div>"
+        # Innovación y Transparencia - OCULTO
+        # "<div style='display: flex; gap: 20px; margin-top: 20px;'>"
+        # "<div style='flex: 1; background: rgba(255,255,255,0.08); padding: 20px; border-radius: 12px;'>"
+        # "<h3 style='color: #00FF88; font-size: 1.1rem; font-weight: 700; margin: 0 0 10px 0;'>🚀 Innovación</h3>"
+        # "<p style='color: rgba(255,255,255,0.9); font-size: 0.95rem; line-height: 1.5; margin: 0;'>"
+        # "Somos los primeros en México en automatizar el análisis de las variables que la SCT y el INEGI publican, "
+        # "eliminando el error humano y el retraso de los tabuladores manuales."
+        # "</p>"
+        # "</div>"
+        # "<div style='flex: 1; background: rgba(255,255,255,0.08); padding: 20px; border-radius: 12px;'>"
+        # "<h3 style='color: #00BFFF; font-size: 1.1rem; font-weight: 700; margin: 0 0 10px 0;'>🔍 Transparencia</h3>"
+        # "<p style='color: rgba(255,255,255,0.9); font-size: 0.95rem; line-height: 1.5; margin: 0;'>"
+        # "Cualquier tarifa mostrada puede ser auditada contra el precio del diésel de la CRE del día de hoy "
+        # "y el INPP del último mes."
+        # "</p>"
+        # "</div>"
+        # "</div>"
         
         "</div>"
     )
@@ -573,10 +985,11 @@ def get_example_data():
 
 # Función principal de predicción
 def render_prediction_interface():
-    # Renderiza la interfaz de prediccion
+    # Renderiza la interfaz de cotización
 
-    # API Key para Google Maps (opcional)
-    # FIJAR LA API KEY DIRECTAMENTE
+    # ═══════════════════════════════════════════════════════════════
+    # 1. INICIALIZAR SERVICIO GEOGRÁFICO
+    # ═══════════════════════════════════════════════════════════════
     api_key = "AIzaSyAsTP4yTb7j7XECoQcsBDMviooAv-v90P8"
     geo_tool_local = None
     try:
@@ -586,140 +999,103 @@ def render_prediction_interface():
         st.error(f"[GeoService ERROR] {e}")
         geo_tool_local = None
 
-    # Crear columnas para los inputs
+    # ═══════════════════════════════════════════════════════════════
+    # 2. COLUMNA 1: DATOS DE RUTA (Origen, Destino, Tipo de Carga)
+    # ═══════════════════════════════════════════════════════════════
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("#### 📍 Configuración de Ruta")
         origin_input = st.text_input("Origen (Ciudad, Estado o CP)", placeholder="Ej: Querétaro, MX", key="origin_input")
         dest_input = st.text_input("Destino (Ciudad, Estado o CP)", placeholder="Ej: Chicago, IL", key="dest_input")
+        
+        tipos_carga_nombres = {
+            0: "Dry Van - Caja seca",
+            1: "Reefer - Carga refrigerada",
+            2: "Flatbed - Carga plana",
+            3: "Contenedor 20'",
+            4: "Contenedor 40'",
+            5: "Doble Articulado/ Full"
+        }
+        
         tipo_carga = st.selectbox(
             "Tipo de Carga",
-            options=[
-                (0, "Dry Van - Carga seca general"),
-                (1, "Reefer - Carga refrigerada"),
-                (2, "Flatbed - Carga plana"),
-                (3, "Contenedor 20'"),
-                (4, "Contenedor 40'"),
-                (5, "Doble Articulado/ Full")
-            ],
-            format_func=lambda x: x[1],
-            help="Tipo de vehículo o contenedor requerido",
-            key="tipo_carga_select"
-        )[0]
+            options=[0, 1, 2, 3, 4, 5],
+            format_func=lambda x: tipos_carga_nombres.get(x, "Desconocido"),
+            index=0,
+            help="Tipo de vehículo o contenedor requerido"
+        )
 
-    # Validar inputs y calcular distancia
+    # ═══════════════════════════════════════════════════════════════
+    # 3. VALIDAR Y CALCULAR DISTANCIA
+    # ═══════════════════════════════════════════════════════════════
     distancia_km = None
     origin_coords = None
     dest_coords = None
+    
     if not origin_input or not dest_input:
-        st.warning("Por favor ingresa un origen y un destino.")
+        st.warning("⚠️ Por favor ingresa un origen y un destino.")
     elif geo_tool_local is None:
-        st.warning("Google Maps API no está configurada. Ingresa una API Key válida en la configuración para habilitar la validación de ciudades y cálculo de distancia.")
+        st.warning("⚠️ Google Maps API no está configurada.")
     else:
-        with st.spinner('Validando ciudades y calculando ruta...'):
+        with st.spinner('⏳ Validando ciudades y calculando ruta...'):
             origin_clean = geo_tool_local.validate_city(origin_input)
             dest_clean = geo_tool_local.validate_city(dest_input)
-            # Extraer coordenadas si están disponibles
+            
             if isinstance(origin_clean, dict) and 'lat' in origin_clean and 'lng' in origin_clean:
                 origin_coords = (origin_clean['lat'], origin_clean['lng'])
             if isinstance(dest_clean, dict) and 'lat' in dest_clean and 'lng' in dest_clean:
                 dest_coords = (dest_clean['lat'], dest_clean['lng'])
+            
             route_info = geo_tool_local.get_route_data(origin_clean, dest_clean)
             if route_info:
                 distancia_km = route_info['distance']
-                st.success(f"Distancia real: {distancia_km} km")
-                # Mostrar coordenadas
-                if origin_coords:
-                    st.info(f"Coordenadas origen: {origin_coords}")
-                if dest_coords:
-                    st.info(f"Coordenadas destino: {dest_coords}")
+                st.success(f"✅ Distancia real: {distancia_km} km")
             else:
-                st.error("No se pudo calcular la distancia. Verifica los datos ingresados.")
+                st.error("❌ No se pudo calcular la distancia. Verifica los datos.")
 
-    import requests
+    # ═══════════════════════════════════════════════════════════════
+    # 4. COLUMNA 2: VARIABLES MÉXICO / USA
+    # ═══════════════════════════════════════════════════════════════
     with col2:
         st.markdown("#### 🇲🇽 Variables Mexicanas / USA")
+        
         riesgo_pais = st.slider(
             "Riesgo País (0-1)",
             min_value=0.0,
             max_value=1.0,
             value=0.3,
             step=0.1,
-            help="Nivel de riesgo político/económico en México (0=bajo, 1=alto)",
+            help="Nivel de riesgo político/económico",
             key="riesgo_pais"
         )
 
-        # Detectar si la ruta es doméstica USA
-        origen = st.session_state.get('origin_input', '').lower()
-        destino = st.session_state.get('dest_input', '').lower()
-        estados_usa = ['usa', 'united states', 'san diego', 'texas', 'chicago', 'california', 'georgia', 'atlanta', 'new york', 'florida', 'arizona', 'nevada', 'colorado', 'illinois', 'ohio', 'michigan', 'wisconsin', 'minnesota', 'missouri', 'kansas', 'oklahoma', 'louisiana', 'alabama', 'tennessee', 'kentucky', 'indiana', 'iowa', 'arkansas', 'mississippi', 'north carolina', 'south carolina', 'virginia', 'west virginia', 'maryland', 'pennsylvania', 'massachusetts', 'connecticut', 'new jersey', 'delaware', 'rhode island', 'new hampshire', 'vermont', 'maine']
-        es_usa = lambda x: any(e in x for e in estados_usa)
-        es_mexico = lambda x: 'mx' in x or 'méxico' in x or 'tijuana' in x or 'guadalajara' in x or 'querétaro' in x or 'tlaquepaque' in x
-        tipo_cambio = st.session_state.get('tipo_cambio', 18.0)
-        precio_diesel = None
-        diesel_source = "manual"
-        if (es_usa(origen) and es_usa(destino)):
-            # Obtener precio diesel USA EIA (USD/galón)
-            try:
-                eia_url = "https://api.eia.gov/series/?api_key=DEMO_KEY&series_id=PET.EMD_EPD2D_PTE_NUS_DPG.W"
-                r = requests.get(eia_url, timeout=5)
-                if r.status_code == 200:
-                    data = r.json()
-                    usd_per_gal = float(data['series'][0]['data'][0][1])
-                    # Convertir a MXN/L
-                    gal_to_l = 3.78541
-                    precio_diesel = round(usd_per_gal * tipo_cambio / gal_to_l, 2)
-                    diesel_source = f"EIA (USD/gal: {usd_per_gal})"
-                else:
-                    precio_diesel = st.slider(
-                        "Precio Diesel (MXN/L)",
-                        min_value=15.0,
-                        max_value=30.0,
-                        value=22.0,
-                        step=0.5,
-                        help="Precio actual del diesel en México",
-                        key="precio_diesel"
-                    )
-            except Exception as e:
-                precio_diesel = st.slider(
-                    "Precio Diesel (MXN/L)",
-                    min_value=15.0,
-                    max_value=30.0,
-                    value=22.0,
-                    step=0.5,
-                    help="Precio actual del diesel en México",
-                    key="precio_diesel"
-                )
-        else:
-            # Intentar obtener el precio real del diesel en México
-            try:
-                from data.market_updates import get_real_diesel_price
-                precio_real = get_real_diesel_price()
-                if precio_real:
-                    precio_diesel = st.number_input(
-                        "Precio Diesel (MXN/L) [Automático]",
-                        min_value=15.0,
-                        max_value=30.0,
-                        value=float(precio_real),
-                        step=0.1,
-                        help="Precio real consultado automáticamente. Puedes ajustar si lo deseas.",
-                        key="precio_diesel"
-                    )
-                    st.info(f"Precio Diesel México (Automático): {precio_real} MXN/L | Fuente: PETROIntelligence/CRE")
-                else:
-                    raise Exception("No se pudo obtener el precio real")
-            except Exception:
-                precio_diesel = st.slider(
-                    "Precio Diesel (MXN/L)",
-                    min_value=15.0,
-                    max_value=30.0,
-                    value=22.0,
-                    step=0.5,
-                    help="Precio actual del diesel en México",
-                    key="precio_diesel"
-                )
-                st.caption("Precio ingresado manualmente")
+        # Obtener precio de diesel actual desde PetroIntelligencia
+        @st.cache_data(ttl=86400)
+        def get_diesel_price_cotizador():
+            precios, fuente = obtener_precios_reales()
+            return precios["promedio_nacional"], fuente
+        
+        precio_diesel_actual, fuente_diesel = get_diesel_price_cotizador()
+        
+        # Mostrar el precio actual y botón de actualización
+        col_diesel_info, col_diesel_btn = st.columns([3, 1])
+        with col_diesel_info:
+            st.info(f"⛽ Precio Actual: **${precio_diesel_actual:.2f} MXN/L** ({fuente_diesel})")
+        with col_diesel_btn:
+            if st.button("🔄 Actualizar", key="diesel_cotizador_refresh", help="Obtener precio actual de PetroIntelligencia"):
+                st.cache_data.clear()
+                st.rerun()
+
+        precio_diesel = st.slider(
+            "Precio Diesel (MXN/L)",
+            min_value=15.0,
+            max_value=30.0,
+            value=precio_diesel_actual,
+            step=0.5,
+            help="Ajusta el precio si deseas simular otro escenario",
+            key="precio_diesel"
+        )
 
         tiempo_cruce = st.slider(
             "Tiempo de Cruce (horas)",
@@ -727,19 +1103,22 @@ def render_prediction_interface():
             max_value=72,
             value=6,
             step=1,
-            help="Tiempo estimado para cruzar la frontera",
+            help="Tiempo estimado fronterizo",
             key="tiempo_cruce"
         )
 
+    # ═══════════════════════════════════════════════════════════════
+    # 5. COLUMNA 3: DATOS DE MERCADO
+    # ═══════════════════════════════════════════════════════════════
     with col3:
         st.markdown("#### 📊 Mercado")
+        
         inflacion_mxn = st.slider(
             "Inflación MXN (%)",
             min_value=2.0,
             max_value=10.0,
             value=5.5,
             step=0.1,
-            help="Tasa de inflación actual en México",
             key="inflacion_mxn"
         )
 
@@ -749,7 +1128,6 @@ def render_prediction_interface():
             max_value=25.0,
             value=18.0,
             step=0.1,
-            help="Tipo de cambio peso mexicano por dólar",
             key="tipo_cambio"
         )
 
@@ -759,7 +1137,6 @@ def render_prediction_interface():
             max_value=1.0,
             value=0.7,
             step=0.1,
-            help="Nivel de demanda actual (0=baja, 1=alta)",
             key="demanda_mercado"
         )
 
@@ -769,121 +1146,57 @@ def render_prediction_interface():
             max_value=1.0,
             value=0.6,
             step=0.1,
-            help="Capacidad de transporte disponible (0=escasa, 1=abundante)",
             key="capacidad_disponible"
         )
 
-    # Variables temporales (calculadas automáticamente)
-    now = datetime.now()
-    mes = now.month
-    dia_semana = now.weekday()
-    es_fin_semana = 1 if dia_semana >= 5 else 0
-    es_temporada_alta = 1 if mes in [11, 12, 3, 4] else 0  # Temporada alta
-
-    # Botón de tarifa spot y predicción
-    col_prof, col_pred = st.columns([1, 1])
-    with col_prof:
-        if st.button("📋 Ver Tarifa Spot FreightMetrics", width='stretch'):
-            if distancia_km and tipo_carga is not None:
-                # Mapear tipo_carga numérico a texto
-                tipos_equipo = {
-                    0: "Caja Seca (Dry Van)",
-                    1: "Refrigerado (Reefer)",
-                    2: "Plataforma (Flatbed)",
-                    3: "Caja Seca (Dry Van)",
-                    4: "Caja Seca (Dry Van)",
-                    5: "Full (Doble)"
-                }
-                equipo = tipos_equipo.get(tipo_carga, "Caja Seca (Dry Van)")
-                # Solo guardar en session_state los campos que NO son claves de widgets
-                st.session_state['tipo_carga'] = tipo_carga
-                mostrar_cotizacion_profesional(distancia_km, equipo)
-            else:
-                st.warning("Primero ingresa origen, destino y tipo de carga válidos.")
-
-
-    # Botón de predicción IA oculto en el frontend para evitar confusión, pero el código sigue disponible
-    # with col_pred:
-    #     predict_button = st.button("🔮 Predecir Tarifa (IA)", type="primary", use_container_width=True)
-    predict_button = False  # Oculto para el usuario
-
-    # Resultados de predicción
-    if predict_button:
-        with st.spinner("Consultando Oracle Rate..."):
-            route_data = {
-                "origin": origin_input,
-                "destination": dest_input,
-                "distancia_km": distancia_km,
-                "tipo_carga": tipo_carga,
-                "riesgo_pais": riesgo_pais,
-                "precio_diesel": precio_diesel,
-                "tiempo_cruce": tiempo_cruce,
-                "inflacion_mxn": inflacion_mxn,
-                "tipo_cambio": tipo_cambio,
-                "demanda_mercado": demanda_mercado,
-                "capacidad_disponible": capacidad_disponible,
-                "mes": mes,
-                "dia_semana": dia_semana,
-                "es_fin_semana": es_fin_semana,
-                "es_temporada_alta": es_temporada_alta
-            }
-            prediction_request = {
-                "route": route_data,
-                "prediction_days": 7
-            }
-            result = call_api("/predict", method="POST", data=prediction_request)
-
-            if result:
-                # Guardar el resultado completo para el Oráculo IA
-                st.session_state['prediction_result'] = result
-
-                # Mostrar resultados
-                st.success("✅ Predicción completada exitosamente!")
-                st.markdown(f"**Origen:** {origin_input}")
-                st.markdown(f"**Destino:** {dest_input}")
-                col_actual, col_predicha, col_cambio, col_confianza = st.columns(4)
-                with col_actual:
-                    st.metric("Tarifa Actual", f"${result['tarifa_actual']:,.0f}", help="Tarifa estimada para hoy")
-                with col_predicha:
-                    st.metric("Predicción 7 días", f"${result['tarifa_predicha']:,.0f}", help="Tarifa estimada en 7 días")
-                with col_cambio:
-                    cambio = result['cambio_porcentual']
-                    color = "inverse" if cambio < 0 else "normal"
-                    st.metric("Cambio", f"{cambio:+.1f}%", help="Cambio porcentual esperado", delta_color=color)
-                with col_confianza:
-                    confianza = result['confianza_modelo']
-                    st.metric("Confianza Modelo", f"{confianza:.1f}%", help="Precisión estimada del modelo")
-                st.markdown("### 📊 Comparación Tarifa Actual vs Predicción")
-                fig = go.Figure()
-                fig.add_trace(go.Bar(name='Tarifa Actual', x=['Hoy'], y=[result['tarifa_actual']], marker_color='#667eea'))
-                fig.add_trace(go.Bar(name='Predicción 7 días', x=['En 7 días'], y=[result['tarifa_predicha']], marker_color='#764ba2'))
-                fig.update_layout(title="Comparación de Tarifas", yaxis_title="Tarifa (USD)", showlegend=True, height=400)
-                st.plotly_chart(fig, width='stretch')
-                st.markdown("### 🎯 Factores de Influencia")
-                factores = result['factores_influencia']
-                df_factores = pd.DataFrame({'Factor': list(factores.keys()), 'Importancia': list(factores.values())}).sort_values('Importancia', ascending=True)
-                fig_factores = px.bar(df_factores, y='Factor', x='Importancia', orientation='h', title="Importancia de Variables en la Predicción", labels={'Importancia': 'Importancia (%)'})
-                fig_factores.update_layout(height=400)
-                st.plotly_chart(fig_factores, width='stretch')
-                st.markdown("### 💡 Recomendación Estratégica")
-                cambio = result['cambio_porcentual']
-                confianza = result['confianza_modelo']
-                if cambio > 5 and confianza > 80:
-                    recomendacion = "⚠️ **ESPERAR**: La tarifa tiende a subir. Considera programar el envío pronto."
-                    color_rec = "#ff9800"
-                elif cambio < -5 and confianza > 80:
-                    recomendacion = "✅ **CONTRATAR AHORA**: La tarifa bajará. Es un buen momento para negociar."
-                    color_rec = "#4caf50"
-                elif confianza < 75:
-                    recomendacion = "🤔 **MONITOREAR**: Alta incertidumbre. Revisa nuevamente en 24 horas."
-                    color_rec = "#2196f3"
-                else:
-                    recomendacion = "📊 **TARIFA ESTABLE**: No hay cambios significativos esperados."
-                    color_rec = "#607d8b"
-                html_rec = (f"<div style='background-color: {color_rec}20; border-left: 5px solid {color_rec}; padding: 20px; border-radius: 10px; margin: 10px 0;'>" f"<h4 style='color: {color_rec}; margin: 0 0 10px 0;'>Recomendación</h4>" f"<p style='color: #333; margin: 0; font-size: 1.1rem;'>{recomendacion}</p>" "</div>")
-                st.markdown(html_rec, unsafe_allow_html=True)
-            else:
-                st.error("❌ Error al obtener la predicción. Verifica la conexión con la API.")
+    # ═══════════════════════════════════════════════════════════════
+    # 6. BOTÓN DE COTIZACIÓN
+    # ═══════════════════════════════════════════════════════════════
+    st.markdown("---")
+    
+    if st.button("📋 Ver Tarifa Spot FreightMetrics", use_container_width=True):
+        # Validar todos los inputs antes de procesar
+        if not distancia_km:
+            st.error("❌ Primero calcula la distancia válida entre origen y destino.")
+            return
+        
+        if not origin_input or not dest_input:
+            st.error("❌ Ingresa origen y destino válidos.")
+            return
+        
+        if tipo_carga is None:
+            st.error("❌ Selecciona un tipo de carga.")
+            return
+        
+        # Mapear tipo_carga a etiqueta de equipo
+        tipos_equipo = {
+            0: "Caja Seca (Dry Van)",
+            1: "Refrigerado (Reefer)",
+            2: "Plataforma (Flatbed)",
+            3: "Contenedor 20'",
+            4: "Contenedor 40'",
+            5: "Full (Doble)"
+        }
+        equipo = tipos_equipo.get(tipo_carga, "Caja Seca (Dry Van)")
+        
+        # DEBUG
+        print(f"[COTIZACIÓN] Origen={origin_input}, Destino={dest_input}, Distancia={distancia_km}km, Equipo={equipo}")
+        
+        # Llamar función de cotización con TODOS los parámetros necesarios
+        mostrar_cotizacion_profesional(
+            dist_km=distancia_km,
+            equipo=equipo,
+            origen=origin_input,
+            destino=dest_input,
+            tipo_carga=tipo_carga,
+            riesgo_pais=riesgo_pais,
+            precio_diesel=precio_diesel,
+            tiempo_cruce=tiempo_cruce,
+            inflacion_mxn=inflacion_mxn,
+            tipo_cambio=tipo_cambio,
+            demanda_mercado=demanda_mercado,
+            capacidad_disponible=capacidad_disponible
+        )
 
 # Función para mostrar información del sistema
 def render_system_info():
@@ -959,133 +1272,16 @@ def main():
     st.markdown(footer_html, unsafe_allow_html=True)
 
     with st.sidebar:
-        page = st.radio("Menu Principal", ["📊 Cotizador", "📈 Índice Tarifas Spot", "⭐ Suscripción", "❓ FAQ", "📩 Contacto", "📋 Términos y Condiciones", "🔒 Política de Privacidad"])
+        page = st.radio("Menu Principal", ["📊 FreightMetrics Oracle Rate", "📈 Tendencia de Tarifas Spot", "⭐ Suscripción", "❓ FAQ", "📩 Contacto", "📋 Términos y Condiciones", "🔒 Política de Privacidad"])
 
-    if page == "📊 Cotizador":
-        # Renderizar encabezado profesional
-        equipo = st.session_state.get('prediction_result', {}).get('tipo_equipo', None)
-        if equipo:
-            st.markdown(f"""
-                <div style='font-size:2.6rem; font-weight:800; text-align:center; margin: 30px 0 20px 0; color:#2d3748;'>
-                    Tarifa Spot - Resultado de Cotización: {equipo}
-                </div>
-            """, unsafe_allow_html=True)
-        
+    if page == "📊 FreightMetrics Oracle Rate":
         # Renderizar interfaz del cotizador
         render_header()
         render_prediction_interface()
         render_system_info()
         
-        # Auditoría IA (después de la predicción)
-        st.markdown("---")
-        st.markdown("### 🛡️ Auditoría del Oráculo (IA)")
-        with st.container():
-            # Usar los datos reales de la predicción si existen
-            if 'prediction_result' in st.session_state:
-                pred = st.session_state['prediction_result']
-                
-                # Datos específicos de DAT si es ruta internacional/USA
-                dat_info = {}
-                if pred.get('tipo_ruta', '') in ['USA Doméstica', 'Internacional']:
-                    dat_info = {
-                        'dat_rate': pred.get('base_ref', 0),
-                        'dat_source': 'DAT USA Doméstica' if 'USA' in pred.get('tipo_ruta', '') else 'DAT Internacional',
-                        'dat_rate_per_mile': pred.get('rate_per_mile', 0),
-                        'dat_equipement': pred.get('tipo_equipo', ''),
-                        'usa_domestic': 'USA' in pred.get('tipo_ruta', '') and 'Internacional' not in pred.get('tipo_ruta', '')
-                    }
-                
-                ai_data = {
-                    'origin': pred.get('origin', ''),
-                    'destination': pred.get('destination', ''), 
-                    'distancia_km': pred.get('distancia_km', 0),
-                    'distancia_mi': pred.get('distancia_mi', 0),
-                    'total_rate': pred.get('total_rate', pred.get('tarifa_actual', 0)),
-                    'prediccion_7d': pred.get('prediccion_7d', ''),
-                    'spot_rate': pred.get('spot_rate', ''),
-                    'risk_level': pred.get('riesgo_pais', 0),
-                    'tipo_equipo': pred.get('tipo_equipo', 'N/A'),
-                    'rate_per_mile': pred.get('rate_per_mile', 'N/A'),
-                    'riesgo_pais': pred.get('riesgo_pais', 0),
-                    'precio_diesel': pred.get('precio_diesel', 0),
-                    'tiempo_cruce': pred.get('tiempo_cruce', 0),
-                    'inflacion_mxn': pred.get('inflacion_mxn', 0),
-                    'tipo_cambio': pred.get('tipo_cambio', 0),
-                    'demanda_mercado': pred.get('demanda_mercado', 0),
-                    'capacidad_disponible': pred.get('capacidad_disponible', 0),
-                    'tipo_ruta': pred.get('tipo_ruta', ''),
-                    'base_ref': pred.get('base_ref', ''),
-                    'moneda': pred.get('moneda', 'USD'),
-                    'pais_origen': pred.get('pais_origen', ''),
-                    'pais_destino': pred.get('pais_destino', ''),
-                    'debug_info': f"Origen: {pred.get('origen_hint', '')}, Destino: {pred.get('destino_hint', '')}",
-                    # Información específica de DAT
-                    **dat_info
-                }
-            else:
-                ai_data = {
-                    'origin': '',
-                    'destination': '',
-                    'distancia_km': 0,
-                    'distancia_mi': 0,
-                    'total_rate': 0,
-                    'prediccion_7d': '',
-                    'spot_rate': '',
-                    'risk_level': 0,
-                    'tipo_equipo': 'N/A',
-                    'rate_per_mile': 'N/A',
-                    'riesgo_pais': 0,
-                    'precio_diesel': 0,
-                    'tiempo_cruce': 0,
-                    'inflacion_mxn': 0,
-                    'tipo_cambio': 0,
-                    'demanda_mercado': 0,
-                    'capacidad_disponible': 0
-                }
 
-            # Validar datos antes de permitir análisis IA
-            datos_faltantes = []
-            if not ai_data['origin']:
-                datos_faltantes.append('Origen')
-            if not ai_data['destination']:
-                datos_faltantes.append('Destino')
-            if not ai_data['tipo_equipo'] or ai_data['tipo_equipo'] == 'N/A':
-                datos_faltantes.append('Tipo de equipo')
-            if not ai_data['distancia_km']:
-                datos_faltantes.append('Distancia')
-            if not ai_data['total_rate']:
-                datos_faltantes.append('Tarifa Total')
-            if not ai_data['spot_rate']:
-                datos_faltantes.append('Spot Rate')
-            for var in ['riesgo_pais','precio_diesel','tiempo_cruce','inflacion_mxn','tipo_cambio','demanda_mercado','capacidad_disponible']:
-                if ai_data[var] in [None, 0, '']:
-                    datos_faltantes.append(var.replace('_',' ').capitalize())
-
-            if datos_faltantes:
-                st.error(f"⚠️ Faltan datos clave para el análisis del Oráculo: {', '.join(set(datos_faltantes))}. Completa la tarifa spot o la predicción IA antes de auditar.")
-
-            GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else st.text_input("Gemini API Key", type="password")
-
-            # Botón para auditar tarifa spot
-            if st.button("🔮 Auditar Tarifa Spot con FreightMetrics", key="ai_analyze_button"):
-                # Limpiar análisis anterior
-                if 'analisis_ia' in st.session_state:
-                    del st.session_state['analisis_ia']
-                if GEMINI_API_KEY:
-                    try:
-                        ai_engine = FreightAI(GEMINI_API_KEY)
-                        with st.spinner(f"Analizando ruta {ai_data['origin']} a {ai_data['destination']}..."):
-                            st.session_state['analisis_ia'] = ai_engine.analyze_route(ai_data)
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Error creando modelo Gemini: {e}")
-                else:
-                    st.warning("Por favor ingresa tu Gemini API Key para usar el Oráculo de Auditoría IA.")
-
-            # Mostrar el análisis si existe
-            if 'analisis_ia' in st.session_state:
-                st.info(st.session_state['analisis_ia'])
-    elif page == "📈 Índice Tarifas Spot":
+    elif page == "📈 Tendencia de Tarifas Spot":
         show_indice_spot()
     elif page == "⭐ Suscripción":
         show_subscription_plans()

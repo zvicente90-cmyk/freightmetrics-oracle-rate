@@ -240,4 +240,4 @@ if __name__ == "__main__":
     }
 
     prediction = engine.predict_tariff(sample_route)
-    print(".2f")
+    print(f"Predicción de tarifa: ${prediction:.2f} USD")

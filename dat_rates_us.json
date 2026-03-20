@@ -1,9 +1,9 @@
 {
-  "fecha_actualizacion": "2026-03-03",
+  "fecha_actualizacion": "2026-03-13",
   "fuente": "DAT Freight & Analytics",
   "tarifas": {
-    "Caja Seca (Dry Van)": 2.32,
-    "Refrigerado (Reefer)": 2.81,
-    "Plataforma (Flatbed)": 2.59
+    "Caja Seca (Dry Van)": 2.45,
+    "Refrigerado (Reefer)": 2.87,
+    "Plataforma (Flatbed)": 2.94
   }
 }

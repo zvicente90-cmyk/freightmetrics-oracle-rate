@@ -1,0 +1,520 @@
+{
+  "metadata": {
+    "created": "2026-03-08",
+    "last_updated": "2026-03-08 18:00",
+    "source": "FreightMetrics México",
+    "currency": "MXN",
+    "notes": "Histórico de tarifas spot mexicanas por rutas y regiones"
+  },
+  "weekly": {},
+  "monthly": {
+    "2026": {
+      "02": {
+        "fecha": "2026-02",
+        "total_rutas": 8,
+        "rutas": {
+          "Querétaro_Querétaro_Nuevo Laredo_Caja Seca 53'": {
+            "region": "Querétaro",
+            "origen": "Querétaro",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 815,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 26551,
+            "tarifa_por_km": 32.58,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Bajío (Gto)_Silao_Nuevo Laredo_Full (Doble)": {
+            "region": "Bajío (Gto)",
+            "origen": "Silao",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 845,
+            "equipo": "Full (Doble)",
+            "tarifa": 43196,
+            "tarifa_por_km": 51.12,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Chihuahua_Chihuahua_El Paso / Juárez_Sencillo 48'": {
+            "region": "Chihuahua",
+            "origen": "Chihuahua",
+            "destino": "El Paso / Juárez",
+            "nodo": "El Paso / Juárez",
+            "distancia_km": 375,
+            "equipo": "Sencillo 48'",
+            "tarifa": 12217,
+            "tarifa_por_km": 32.58,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Baja Cali_Tijuana_Otay Mesa_Sencillo 53'": {
+            "region": "Baja Cali",
+            "origen": "Tijuana",
+            "destino": "Otay Mesa",
+            "nodo": "Otay Mesa",
+            "distancia_km": 25,
+            "equipo": "Sencillo 53'",
+            "tarifa": 814,
+            "tarifa_por_km": 32.56,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Jalisco_Guadalajara_Nogales_Refrigerado": {
+            "region": "Jalisco",
+            "origen": "Guadalajara",
+            "destino": "Nogales",
+            "nodo": "Nogales",
+            "distancia_km": 1735,
+            "equipo": "Refrigerado",
+            "tarifa": 71085,
+            "tarifa_por_km": 40.97,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Edomex_San Martín Obispo_Nuevo Laredo_Caja Seca 53'": {
+            "region": "Edomex",
+            "origen": "San Martín Obispo",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 1080,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 35170,
+            "tarifa_por_km": 32.56,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "Nuevo León_Monterrey_Colombia / NL_Full (Doble)": {
+            "region": "Nuevo León",
+            "origen": "Monterrey",
+            "destino": "Colombia / NL",
+            "nodo": "Colombia / NL",
+            "distancia_km": 215,
+            "equipo": "Full (Doble)",
+            "tarifa": 10994,
+            "tarifa_por_km": 51.13,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          },
+          "San Luis Potosí_San Luis Potosí_Nuevo Laredo_Caja Seca 53'": {
+            "region": "San Luis Potosí",
+            "origen": "San Luis Potosí",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 620,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 20196,
+            "tarifa_por_km": 32.57,
+            "variacion_pct": 0,
+            "tendencia": "nuevo"
+          }
+        },
+        "estadisticas": {
+          "tarifa_promedio": 27527.88,
+          "tarifa_minima": 814,
+          "tarifa_maxima": 71085,
+          "tarifa_por_km_promedio": 38.26,
+          "rutas_alcistas": 0,
+          "rutas_bajistas": 0,
+          "rutas_estables": 8
+        }
+      },
+      "03": {
+        "fecha": "2026-03",
+        "total_rutas": 8,
+        "rutas": {
+          "Querétaro_Querétaro_Nuevo Laredo_Caja Seca 53'": {
+            "region": "Querétaro",
+            "origen": "Querétaro",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 815,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 27987,
+            "tarifa_por_km": 34.34,
+            "variacion_pct": 5.41,
+            "tendencia": "alcista"
+          },
+          "Bajío (Gto)_Silao_Nuevo Laredo_Full (Doble)": {
+            "region": "Bajío (Gto)",
+            "origen": "Silao",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 845,
+            "equipo": "Full (Doble)",
+            "tarifa": 45571,
+            "tarifa_por_km": 53.93,
+            "variacion_pct": 5.5,
+            "tendencia": "alcista"
+          },
+          "Chihuahua_Chihuahua_El Paso / Juárez_Sencillo 48'": {
+            "region": "Chihuahua",
+            "origen": "Chihuahua",
+            "destino": "El Paso / Juárez",
+            "nodo": "El Paso / Juárez",
+            "distancia_km": 375,
+            "equipo": "Sencillo 48'",
+            "tarifa": 12878,
+            "tarifa_por_km": 34.34,
+            "variacion_pct": 5.41,
+            "tendencia": "alcista"
+          },
+          "Baja Cali_Tijuana_Otay Mesa_Sencillo 53'": {
+            "region": "Baja Cali",
+            "origen": "Tijuana",
+            "destino": "Otay Mesa",
+            "nodo": "Otay Mesa",
+            "distancia_km": 25,
+            "equipo": "Sencillo 53'",
+            "tarifa": 859,
+            "tarifa_por_km": 34.36,
+            "variacion_pct": 5.53,
+            "tendencia": "alcista"
+          },
+          "Jalisco_Guadalajara_Nogales_Refrigerado": {
+            "region": "Jalisco",
+            "origen": "Guadalajara",
+            "destino": "Nogales",
+            "nodo": "Nogales",
+            "distancia_km": 1735,
+            "equipo": "Refrigerado",
+            "tarifa": 74935,
+            "tarifa_por_km": 43.19,
+            "variacion_pct": 5.42,
+            "tendencia": "alcista"
+          },
+          "Edomex_San Martín Obispo_Nuevo Laredo_Caja Seca 53'": {
+            "region": "Edomex",
+            "origen": "San Martín Obispo",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 1080,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 37087,
+            "tarifa_por_km": 34.34,
+            "variacion_pct": 5.45,
+            "tendencia": "alcista"
+          },
+          "Nuevo León_Monterrey_Colombia / NL_Full (Doble)": {
+            "region": "Nuevo León",
+            "origen": "Monterrey",
+            "destino": "Colombia / NL",
+            "nodo": "Colombia / NL",
+            "distancia_km": 215,
+            "equipo": "Full (Doble)",
+            "tarifa": 11595,
+            "tarifa_por_km": 53.93,
+            "variacion_pct": 5.47,
+            "tendencia": "alcista"
+          },
+          "San Luis Potosí_San Luis Potosí_Nuevo Laredo_Caja Seca 53'": {
+            "region": "San Luis Potosí",
+            "origen": "San Luis Potosí",
+            "destino": "Nuevo Laredo",
+            "nodo": "Nuevo Laredo",
+            "distancia_km": 620,
+            "equipo": "Caja Seca 53'",
+            "tarifa": 21291,
+            "tarifa_por_km": 34.34,
+            "variacion_pct": 5.42,
+            "tendencia": "alcista"
+          }
+        },
+        "estadisticas": {
+          "tarifa_promedio": 29025.38,
+          "tarifa_minima": 859,
+          "tarifa_maxima": 74935,
+          "tarifa_por_km_promedio": 40.35,
+          "rutas_alcistas": 8,
+          "rutas_bajistas": 0,
+          "rutas_estables": 0
+        }
+      }
+    }
+  },
+  "routes": {},
+  "regions": {
+    "2026-02": {
+      "Querétaro": {
+        "tarifa_promedio": 26551.0,
+        "tarifa_minima": 26551,
+        "tarifa_maxima": 26551,
+        "distancia_promedio": 815.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Bajío (Gto)": {
+        "tarifa_promedio": 43196.0,
+        "tarifa_minima": 43196,
+        "tarifa_maxima": 43196,
+        "distancia_promedio": 845.0,
+        "tipos_equipo": [
+          "Full (Doble)"
+        ],
+        "total_rutas": 1
+      },
+      "Chihuahua": {
+        "tarifa_promedio": 12217.0,
+        "tarifa_minima": 12217,
+        "tarifa_maxima": 12217,
+        "distancia_promedio": 375.0,
+        "tipos_equipo": [
+          "Sencillo 48'"
+        ],
+        "total_rutas": 1
+      },
+      "Baja Cali": {
+        "tarifa_promedio": 814.0,
+        "tarifa_minima": 814,
+        "tarifa_maxima": 814,
+        "distancia_promedio": 25.0,
+        "tipos_equipo": [
+          "Sencillo 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Jalisco": {
+        "tarifa_promedio": 71085.0,
+        "tarifa_minima": 71085,
+        "tarifa_maxima": 71085,
+        "distancia_promedio": 1735.0,
+        "tipos_equipo": [
+          "Refrigerado"
+        ],
+        "total_rutas": 1
+      },
+      "Edomex": {
+        "tarifa_promedio": 35170.0,
+        "tarifa_minima": 35170,
+        "tarifa_maxima": 35170,
+        "distancia_promedio": 1080.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Nuevo León": {
+        "tarifa_promedio": 10994.0,
+        "tarifa_minima": 10994,
+        "tarifa_maxima": 10994,
+        "distancia_promedio": 215.0,
+        "tipos_equipo": [
+          "Full (Doble)"
+        ],
+        "total_rutas": 1
+      },
+      "San Luis Potosí": {
+        "tarifa_promedio": 20196.0,
+        "tarifa_minima": 20196,
+        "tarifa_maxima": 20196,
+        "distancia_promedio": 620.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      }
+    },
+    "2026-03": {
+      "Querétaro": {
+        "tarifa_promedio": 27987.0,
+        "tarifa_minima": 27987,
+        "tarifa_maxima": 27987,
+        "distancia_promedio": 815.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Bajío (Gto)": {
+        "tarifa_promedio": 45571.0,
+        "tarifa_minima": 45571,
+        "tarifa_maxima": 45571,
+        "distancia_promedio": 845.0,
+        "tipos_equipo": [
+          "Full (Doble)"
+        ],
+        "total_rutas": 1
+      },
+      "Chihuahua": {
+        "tarifa_promedio": 12878.0,
+        "tarifa_minima": 12878,
+        "tarifa_maxima": 12878,
+        "distancia_promedio": 375.0,
+        "tipos_equipo": [
+          "Sencillo 48'"
+        ],
+        "total_rutas": 1
+      },
+      "Baja Cali": {
+        "tarifa_promedio": 859.0,
+        "tarifa_minima": 859,
+        "tarifa_maxima": 859,
+        "distancia_promedio": 25.0,
+        "tipos_equipo": [
+          "Sencillo 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Jalisco": {
+        "tarifa_promedio": 74935.0,
+        "tarifa_minima": 74935,
+        "tarifa_maxima": 74935,
+        "distancia_promedio": 1735.0,
+        "tipos_equipo": [
+          "Refrigerado"
+        ],
+        "total_rutas": 1
+      },
+      "Edomex": {
+        "tarifa_promedio": 37087.0,
+        "tarifa_minima": 37087,
+        "tarifa_maxima": 37087,
+        "distancia_promedio": 1080.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      },
+      "Nuevo León": {
+        "tarifa_promedio": 11595.0,
+        "tarifa_minima": 11595,
+        "tarifa_maxima": 11595,
+        "distancia_promedio": 215.0,
+        "tipos_equipo": [
+          "Full (Doble)"
+        ],
+        "total_rutas": 1
+      },
+      "San Luis Potosí": {
+        "tarifa_promedio": 21291.0,
+        "tarifa_minima": 21291,
+        "tarifa_maxima": 21291,
+        "distancia_promedio": 620.0,
+        "tipos_equipo": [
+          "Caja Seca 53'"
+        ],
+        "total_rutas": 1
+      }
+    }
+  },
+  "equipment": {
+    "2026-02": {
+      "Caja Seca 53'": {
+        "tarifa_promedio": 27305.67,
+        "tarifa_minima": 20196,
+        "tarifa_maxima": 35170,
+        "tarifa_por_km_promedio": 32.57,
+        "regiones": [
+          "San Luis Potosí",
+          "Edomex",
+          "Querétaro"
+        ],
+        "total_rutas": 3
+      },
+      "Full (Doble)": {
+        "tarifa_promedio": 27095.0,
+        "tarifa_minima": 10994,
+        "tarifa_maxima": 43196,
+        "tarifa_por_km_promedio": 51.13,
+        "regiones": [
+          "Nuevo León",
+          "Bajío (Gto)"
+        ],
+        "total_rutas": 2
+      },
+      "Sencillo 48'": {
+        "tarifa_promedio": 12217.0,
+        "tarifa_minima": 12217,
+        "tarifa_maxima": 12217,
+        "tarifa_por_km_promedio": 32.58,
+        "regiones": [
+          "Chihuahua"
+        ],
+        "total_rutas": 1
+      },
+      "Sencillo 53'": {
+        "tarifa_promedio": 814.0,
+        "tarifa_minima": 814,
+        "tarifa_maxima": 814,
+        "tarifa_por_km_promedio": 32.56,
+        "regiones": [
+          "Baja Cali"
+        ],
+        "total_rutas": 1
+      },
+      "Refrigerado": {
+        "tarifa_promedio": 71085.0,
+        "tarifa_minima": 71085,
+        "tarifa_maxima": 71085,
+        "tarifa_por_km_promedio": 40.97,
+        "regiones": [
+          "Jalisco"
+        ],
+        "total_rutas": 1
+      }
+    },
+    "2026-03": {
+      "Caja Seca 53'": {
+        "tarifa_promedio": 28788.33,
+        "tarifa_minima": 21291,
+        "tarifa_maxima": 37087,
+        "tarifa_por_km_promedio": 34.34,
+        "regiones": [
+          "San Luis Potosí",
+          "Edomex",
+          "Querétaro"
+        ],
+        "total_rutas": 3
+      },
+      "Full (Doble)": {
+        "tarifa_promedio": 28583.0,
+        "tarifa_minima": 11595,
+        "tarifa_maxima": 45571,
+        "tarifa_por_km_promedio": 53.93,
+        "regiones": [
+          "Nuevo León",
+          "Bajío (Gto)"
+        ],
+        "total_rutas": 2
+      },
+      "Sencillo 48'": {
+        "tarifa_promedio": 12878.0,
+        "tarifa_minima": 12878,
+        "tarifa_maxima": 12878,
+        "tarifa_por_km_promedio": 34.34,
+        "regiones": [
+          "Chihuahua"
+        ],
+        "total_rutas": 1
+      },
+      "Sencillo 53'": {
+        "tarifa_promedio": 859.0,
+        "tarifa_minima": 859,
+        "tarifa_maxima": 859,
+        "tarifa_por_km_promedio": 34.36,
+        "regiones": [
+          "Baja Cali"
+        ],
+        "total_rutas": 1
+      },
+      "Refrigerado": {
+        "tarifa_promedio": 74935.0,
+        "tarifa_minima": 74935,
+        "tarifa_maxima": 74935,
+        "tarifa_por_km_promedio": 43.19,
+        "regiones": [
+          "Jalisco"
+        ],
+        "total_rutas": 1
+      }
+    }
+  },
+  "current": {
+    "semana_actual": "week_10",
+    "mes_actual": "2026-03",
+    "año_actual": "2026"
+  }
+}

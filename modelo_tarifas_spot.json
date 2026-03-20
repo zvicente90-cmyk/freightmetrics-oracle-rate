@@ -1,0 +1,50 @@
+{
+  "sencillo": {
+    "label": "Sencillo (Caja Seca)",
+    "consumo_diesel": 11.4,
+    "inflacion": 2.4,
+    "casetas": 5.4,
+    "sueldo_viaticos": 4.5,
+    "riesgo_seguro": 2.2,
+    "manto_accesorios": 3.2,
+    "costo_operativo": 29.1,
+    "utilidad_pct": 0.18,
+    "tarifa_final": 34.34
+  },
+  "plataforma": {
+    "label": "Plataforma (Flatbed)",
+    "consumo_diesel": 12.1,
+    "inflacion": 2.8,
+    "casetas": 5.4,
+    "sueldo_viaticos": 5.1,
+    "riesgo_seguro": 3.4,
+    "manto_accesorios": 3.9,
+    "costo_operativo": 32.7,
+    "utilidad_pct": 0.18,
+    "tarifa_final": 38.58
+  },
+  "refrigerado": {
+    "label": "Refrigerado (Termo)",
+    "consumo_diesel": 15.2,
+    "inflacion": 3.1,
+    "casetas": 5.4,
+    "sueldo_viaticos": 5.2,
+    "riesgo_seguro": 3.6,
+    "manto_accesorios": 4.1,
+    "costo_operativo": 36.6,
+    "utilidad_pct": 0.18,
+    "tarifa_final": 43.19
+  },
+  "full": {
+    "label": "Full (Doble Remolque)",
+    "consumo_diesel": 16.7,
+    "inflacion": 3.8,
+    "casetas": 9.8,
+    "sueldo_viaticos": 6.8,
+    "riesgo_seguro": 3.1,
+    "manto_accesorios": 5.5,
+    "costo_operativo": 45.7,
+    "utilidad_pct": 0.18,
+    "tarifa_final": 53.93
+  }
+}

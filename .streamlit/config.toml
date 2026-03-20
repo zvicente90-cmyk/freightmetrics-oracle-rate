@@ -9,6 +9,8 @@ enableXsrfProtection = true
 
 # Configuraciones de UI
 maxUploadSize = 200
+headless = true
+runOnSave = true
 
 [browser]
 # No abrir automáticamente el navegador
