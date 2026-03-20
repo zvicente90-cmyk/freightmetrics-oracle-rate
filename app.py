@@ -207,7 +207,17 @@ NO digas "falta información" - todos los datos están incluidos. Sé profesiona
         
         # Usar FreightAI para análisis
         try:
-            GEMINI_API_KEY = "AIzaSyDgXuU6LK6ktAmvlyxB84H2DFN_ubuWFcY"
+            # Cargar API key desde Streamlit Secrets (Streamlit Cloud) o config
+            try:
+                GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
+            except:
+                GEMINI_API_KEY = None
+            
+            # Fallback a config.py si no está en Streamlit Secrets
+            if not GEMINI_API_KEY:
+                from config import GEMINI_API_KEY as CONFIG_GEMINI
+                GEMINI_API_KEY = CONFIG_GEMINI
+            
             if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
                 return None
             

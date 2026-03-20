@@ -2,27 +2,38 @@
 """
 Configuración centralizada de FreightMetrics MVP
 Maneja variables de entorno y validaciones
+Soporta tanto desarrollo local como Streamlit Cloud
 """
 
 import os
 import sys
 from dotenv import load_dotenv
 
-# Cargar variables de entorno desde archivo .env
+# Cargar variables de entorno desde archivo .env (solo en desarrollo local)
 load_dotenv()
 
 # ============================================
 # VARIABLES DE ENTORNO - GOOGLE APIs
 # ============================================
-GOOGLE_MAPS_API_KEY = os.getenv(
-    "GOOGLE_MAPS_API_KEY",
-    "AIzaSyAsTP4yTb7j7XECoQcsBDMviooAv-v90P8"  # Fallback para desarrollo
-)
+# Primero intenta cargar desde Streamlit Secrets (si está en Streamlit Cloud)
+# Si no, intenta desde .env o variables de entorno
+# Si no, usa fallback (solo para desarrollo local)
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY",
-    "AIzaSyDgXuU6LK6ktAmvlyxB84H2DFN_ubuWFcY"  # Fallback para desarrollo
-)
+try:
+    import streamlit as st
+    # Si estamos en Streamlit, intentar cargar desde st.secrets
+    GOOGLE_MAPS_API_KEY = st.secrets.get("GOOGLE_MAPS_API_KEY", None)
+    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
+except:
+    GOOGLE_MAPS_API_KEY = None
+    GEMINI_API_KEY = None
+
+# Fallback a ambiente si no está en Streamlit Secrets
+if not GOOGLE_MAPS_API_KEY:
+    GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyAsTP4yTb7j7XECoQcsBDMviooAv-v90P8")
+
+if not GEMINI_API_KEY:
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDgXuU6LK6ktAmvlyxB84H2DFN_ubuWFcY")
 
 # ============================================
 # CONFIGURACIÓN DE LA APLICACIÓN
